@@ -9,11 +9,13 @@ Created on Sun Jun 26 13:49:56 2022
 - Run neurokit2's R peak algorithm
 - Epoch the EEG data based on identified R peak
 - Add sleep stages as metadata to the epochs
+- Added detected ECG peaks as STIM channel
+- There is redundancy for R peaks markers (STIM & annotations)
+- Added cleaned ECG as a new channels
+- Be mindful about inplace functions
 
 To DO
-- HEPs show a clear ECG wave (P wave was obvious)
 - Do epochs rejections
-- Clean remaining epochs after rejection
 
 @author: Rahul Venugopal
 """
@@ -35,13 +37,9 @@ channels_to_pick = ['Fz','Cz','Pz','A1','A2', 'X4','X5']
 eegrefchans = ['A1','A2']
 
 # select only subset of channels
-edfdata.pick_channels(channels_to_pick)
+edfdata = edfdata.pick_channels(channels_to_pick)
 
-# Re-referencing the data
-edfdata.set_eeg_reference(eegrefchans)
-edfdata.drop_channels(eegrefchans)
-
-# Renaming ECG channels and setting them as ECG channels
+# Renaming ECG channels and setting them as ECG channels after filtering
 mne.rename_channels(edfdata.info,
                     {'X4':'ECG1', 'X5':'ECG2'})
 edfdata.set_channel_types({'ECG1':'ecg', 'ECG2':'ecg'})
@@ -53,10 +51,7 @@ edfdata.set_montage(montage)
 # Plot the sensors to make sure locations are intact
 mne.viz.plot_sensors(edfdata.info)
 
-# filter
-edfdata.filter(0.1,None,fir_design='firwin').load_data()
-edfdata.filter(None,40,fir_design='firwin').load_data()
-
+# plot and see the data
 edfdata.plot()
 
 # ECG1 can be used for detecting R peaks
@@ -75,6 +70,50 @@ peaks, info2 = nk.ecg_peaks(signals["ECG_Clean"],
                            sampling_rate = edfdata.info['sfreq'])
 
 # info2['ECG_R_Peaks'] contains the samplepoints of detected R peaks
+
+#%% Adding cleaned ECG trace and identified ECG peak as a STIM
+
+# creating new ECG cleaned channel from signals dataframe
+cleaned_ECG = signals["ECG_Clean"].to_frame().transpose().to_numpy()
+
+# create a mne raw object of clean ECG using info and raw object
+info_ecg = mne.create_info(ch_names=['cleaned_ECG'],
+                                    sfreq = edfdata.info['sfreq'],
+                                    ch_types='ecg')
+clean_ECG = mne.io.RawArray(cleaned_ECG, info_ecg)
+
+# adding cleaned ECG channel to edfdata mne object
+edfdata.add_channels([clean_ECG])
+
+# creating a STIM channel based on identified R peaks (it has to be a 2D array)
+flip_dataframe = peaks.transpose()
+stim_data = flip_dataframe.to_numpy()
+
+info_stim = mne.create_info(['STI'], edfdata.info['sfreq'], ['stim'])
+stim_raw = mne.io.RawArray(stim_data, info_stim)
+
+# force_update_info should be True for STIM channel
+edfdata.add_channels([stim_raw], force_update_info=True)
+
+#%% The MNE objects should have same info features
+
+# Then only we can add channels together
+# Hence, filtering and re-referencing are done later
+
+# filter, In ME, filter applies only to EEG channels
+edfdata.filter(0.1,None,fir_design='firwin').load_data()
+edfdata.filter(None,40,fir_design='firwin').load_data()
+
+# Re-referencing the data. The re-referenced info was preventing adding channels
+# So, doing re-referencing at the very end
+edfdata.set_eeg_reference(eegrefchans)
+edfdata.drop_channels(eegrefchans)
+
+# Dropping unwanted channels
+edfdata.drop_channels('ECG2')
+
+# See the data now before epoching
+edfdata.plot()
 
 #%% Load EDF hypnogram read relevant details
 
@@ -201,31 +240,35 @@ HEP_R = R_epochs.average()
 
 #%% Visualisation of Heart Evoked Potentials
 
-# For the actual visualisation, we store a number of shared parameters.
-style_plot = dict(
-    colors={"W": "#d73027",
-            "N1": "#fdae61",
-            "N2": "#1a9850",
-            "N3": "#3288bd",
-            "R": "#01665e"},
-    ci=.68, # CI is not showing up (or it is too tight a plot)
-    show_sensors='lower right',
-    truncate_yaxis="auto",
-    picks=epochs.ch_names.index("Fz"))
+channels_to_plot = ['Fz','Cz','Pz']
 
-# Averaging each stage HEP and saving them to a dictionary
-evokeds = {"W":HEP_W,
-           "N1":HEP_N1,
-           "N2":HEP_N2,
-           "N3":HEP_N3,
-           "R":HEP_R}
+for channels in channels_to_plot:
 
-# Plotting the HEPs
-fig, ax = plt.subplots(figsize=(6, 4))
-mne.viz.plot_compare_evokeds(evokeds,
-                             axes=ax,
-                             **style_plot)
+    # For the actual visualisation, we store a number of shared parameters.
+    style_plot = dict(
+        colors={"W": "#d73027",
+                "N1": "#fdae61",
+                "N2": "#1a9850",
+                "N3": "#3288bd",
+                "R": "#01665e"},
+        ci=.68, # CI is not showing up (or it is too tight a plot)
+        show_sensors='lower right',
+        truncate_yaxis="auto",
+        picks=epochs.ch_names.index(channels))
 
-plt.title("HEP in various stages of sleep")
-plt.tight_layout()
-plt.show()
+    # Averaging each stage HEP and saving them to a dictionary
+    evokeds = {"W":HEP_W,
+               "N1":HEP_N1,
+               "N2":HEP_N2,
+               "N3":HEP_N3,
+               "R":HEP_R}
+
+    # Plotting the HEPs
+    fig, ax = plt.subplots(figsize=(6, 4))
+    mne.viz.plot_compare_evokeds(evokeds,
+                                 axes=ax,
+                                 **style_plot)
+
+    plt.title("HEP in various stages of sleep")
+    plt.tight_layout()
+    plt.show()
