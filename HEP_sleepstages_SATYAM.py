@@ -42,17 +42,6 @@ edfdata = edfdata.pick_channels(channels_to_pick)
 # Renaming ECG channels and setting them as ECG channels after filtering
 mne.rename_channels(edfdata.info,
                     {'X4':'ECG1', 'X5':'ECG2'})
-edfdata.set_channel_types({'ECG1':'ecg', 'ECG2':'ecg'})
-
-# Add channel locations from a template
-montage = mne.channels.make_standard_montage('standard_1020')
-edfdata.set_montage(montage)
-
-# Plot the sensors to make sure locations are intact
-mne.viz.plot_sensors(edfdata.info)
-
-# plot and see the data
-edfdata.plot()
 
 # ECG1 can be used for detecting R peaks
 
@@ -104,6 +93,13 @@ edfdata.add_channels([stim_raw], force_update_info=True)
 edfdata.filter(0.1,None,fir_design='firwin').load_data()
 edfdata.filter(None,40,fir_design='firwin').load_data()
 
+# Setting channel type after filtering
+edfdata.set_channel_types({'ECG1':'ecg', 'ECG2':'ecg'})
+
+# Add channel locations from a template
+montage = mne.channels.make_standard_montage('standard_1020')
+edfdata.set_montage(montage)
+
 # Re-referencing the data. The re-referenced info was preventing adding channels
 # So, doing re-referencing at the very end
 edfdata.set_eeg_reference(eegrefchans)
@@ -111,6 +107,9 @@ edfdata.drop_channels(eegrefchans)
 
 # Dropping unwanted channels
 edfdata.drop_channels('ECG2')
+
+# Plot the sensors to make sure locations are intact
+mne.viz.plot_sensors(edfdata.info)
 
 # See the data now before epoching
 edfdata.plot()
@@ -182,7 +181,9 @@ replacement_mapping_dict = {
 }
 
 # rewriting the SleepStages column
-sleep_stage_df = sleep_stage_df["SleepStages"].replace(replacement_mapping_dict)
+sleep_stage_series = sleep_stage_df["SleepStages"].replace(replacement_mapping_dict)
+
+sleep_stage_df = sleep_stage_series.to_frame()
 sleep_stage_df["SleepStages"].unique()
 
 #%% Read events from annotations and epoch EDF data
@@ -190,8 +191,8 @@ sleep_stage_df["SleepStages"].unique()
 events =  mne.find_events(edfdata, stim_channel='STI')
 
 # Epoching parameters
-tmin, tmax = -0.5, 0.7
-baseline = None
+tmin, tmax = -0.2, 1
+baseline = (-0.2,0)
 
 # Epoch the data
 epochs = mne.Epochs(edfdata,
@@ -207,7 +208,7 @@ epochs = mne.Epochs(edfdata,
 # Wake
 stage = ['W']
 W_epochs = epochs['SleepStages in {}'.format(stage)]
-print('No of wake epochs is ' + str(len(W_epochs.events)))
+print('No of Wake epochs is ' + str(len(W_epochs.events)))
 HEP_W = W_epochs.average()
 
 # N1
@@ -260,11 +261,10 @@ for channels in channels_to_plot:
                "R":HEP_R}
 
     # Plotting the HEPs
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(8, 4))
     mne.viz.plot_compare_evokeds(evokeds,
                                  axes=ax,
                                  **style_plot)
 
     plt.title("HEP in various stages of sleep from" + channels + ' sensor')
-    plt.tight_layout()
     plt.show()

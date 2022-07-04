@@ -211,7 +211,7 @@ epochs = mne.Epochs(edfdata,
 # Wake
 stage = ['W']
 W_epochs = epochs['SleepStages in {}'.format(stage)]
-print('No of wake epochs is ' + str(len(W_epochs.events)))
+print('No of Wake epochs is ' + str(len(W_epochs.events)))
 HEP_W = W_epochs.average()
 
 # N1
