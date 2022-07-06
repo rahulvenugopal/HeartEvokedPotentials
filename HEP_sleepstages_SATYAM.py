@@ -26,6 +26,7 @@ import numpy as np
 import yasa
 import pandas as pd
 import matplotlib.pyplot as plt
+import scipy.io
 
 #%% Load data and hypnogram files
 
@@ -33,7 +34,9 @@ edfdata = mne.io.read_raw_edf('Jyotiben_PSG.edf',
                              preload=True)
 
 # X4 and X5 are ECG channels, picking them and say three EEG channels
-channels_to_pick = ['Fz','Cz','Pz','A1','A2', 'X4','X5']
+channels_to_pick = ['Fp1', 'Fp2', 'F3', 'F4', 'C3', 'C4', 'P3', 'P4',
+ 'O1', 'O2', 'F7', 'F8', 'T3', 'T4', 'T5', 'T6', 'Fz', 'Cz', 'Pz','A1','A2', 'X4','X5']
+                    
 eegrefchans = ['A1','A2']
 
 # select only subset of channels
@@ -268,3 +271,27 @@ for channels in channels_to_plot:
 
     plt.title("HEP in various stages of sleep from" + channels + ' sensor')
     plt.show()
+    
+#%% Saving the epoched files as chan*times*epochs as .mat files
+
+W_array = W_epochs.get_data()
+W_array = W_array.transpose(1,2,0)
+
+N1_array = N1_epochs.get_data()
+N1_array = N1_array.transpose(1,2,0)
+
+N2_array = N2_epochs.get_data()
+N2_array = N2_array.transpose(1,2,0)
+
+N3_array = N3_epochs.get_data()
+N3_array = N3_array.transpose(1,2,0)
+
+R_array = R_epochs.get_data()
+R_array = R_array.transpose(1,2,0)
+
+# saving to a mat file
+scipy.io.savemat('W.mat', {'W_array': W_array})
+scipy.io.savemat('N1.mat', {'N1_array': N1_array})
+scipy.io.savemat('N2.mat', {'N2_array': N2_array})
+scipy.io.savemat('N3.mat', {'N3_array': N3_array})
+scipy.io.savemat('R.mat', {'R_array': R_array})
