@@ -1,5 +1,5 @@
 # HeartEvokedPotentials
-![](https://raw.githubusercontent.com/rahulvenugopal/HeartEvokedPotentials/main/HEP_Sleep.png?token=GHSAT0AAAAAABWK3HW4N4X5SDTMRRCPZ67OYWFTJGA)
+![](https://github.com/rahulvenugopal/HeartEvokedPotentials/blob/main/HEP_Sleep.png)
 
 # References
 1. [Systematic review and meta-analysis of the relationship between the heartbeat-evoked potential and interoception](https://pubmed.ncbi.nlm.nih.gov/33450331/)
