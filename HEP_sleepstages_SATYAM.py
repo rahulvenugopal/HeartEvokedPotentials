@@ -35,7 +35,7 @@ import scipy.io
 
 #%% Load data and hypnogram files
 
-edfdata = mne.io.read_raw_edf('Jyotiben_PSG.edf',
+edfdata = mne.io.read_raw_edf('Anon_PSG.edf',
                              preload=True)
 
 # X4 and X5 are ECG channels, picking them and say three EEG channels
@@ -128,7 +128,7 @@ plt.close()
 #%% Load EDF hypnogram read relevant details
 
 # load scored hypnogram file and read annotations neatly into a dataframe
-sleep_data = mne.read_annotations('Jyotiben_PSG_scoredbygulshan.edf')
+sleep_data = mne.read_annotations('Anon_hypnogram.edf')
 
 # onset column is start of an epoch and duration tells us how long
 hypnogram_annot = sleep_data.to_data_frame()
