@@ -235,7 +235,7 @@ epochs.drop_bad()
 print(epochs.drop_log)
 epochs.plot_drop_log()
 
-plt.savefig('Log of bad epochs dropped.png',
+plt.savefig(filename + 'Log of bad epochs dropped.png',
             dpi = 600,
             backend='cairo')
 
