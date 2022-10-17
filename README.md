@@ -17,7 +17,14 @@
 - Segregating cut epochs based on five sleep stages
 - Average the respective epochs to generate sleep HEPs for each stage (W, N1, N2, N3 and R)
 - Visualise and save HEPs across all EEG channels
-- Pickling the averaged HEPs for cluster based stats (later, yet to build this part of pipeline)
+- Pickling the averaged HEPs for cluster based stats
+
+# Stats using TFCE
+- Load all the pickled data and select one sleep stage (say REM state)
+- As per tutorial (Learn Decoding repo), we need two datasets
+- One for meditators and one for controls
+- `subjects` * `time` * `frequency` should be the format
+- Once done, pass through the function `spatio_temporal_cluster_test`
 
 # To Do
 - Surrogate R peaks which are shifted randomly away from actual R peak location
