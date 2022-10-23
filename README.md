@@ -28,8 +28,14 @@
 
 # To Do
 - Surrogate R peaks which are shifted randomly away from actual R peak location
-- The above step is to validate the specific effects of R peak comapred to other part of ECG
-- Threshold free cluster enhancement (TFCE) stats which run across time and electrodes
+- The above step is to validate the specific effects of R peak compared to other part of ECG
+
+# Threshold free cluster enhancement (TFCE) stats which run across time and electrodes
+- Gather all pickled files under two variables
+- Combine them and keep the dimensions as per TFCE format
+- Readup [clear explanation of tmax statistics](https://github.com/dmgroppe/Mass_Univariate_ERP_Toolbox/issues/7)
+- Run the TFCE method and save the graph
+- Interpret the findings
 
 # References
 1. [Systematic review and meta-analysis of the relationship between the heartbeat-evoked potential and interoception](https://pubmed.ncbi.nlm.nih.gov/33450331/)
