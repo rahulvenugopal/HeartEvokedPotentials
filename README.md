@@ -23,7 +23,7 @@
 - Load all the pickled data and select one sleep stage (say REM state)
 - As per tutorial (Learn Decoding repo), we need two datasets
 - One for meditators and one for controls
-- `subjects` * `time` * `frequency` should be the format
+- `subjects` * `time` * `channels` should be the format
 - Once done, pass through the function `spatio_temporal_cluster_test`
 
 # To Do
