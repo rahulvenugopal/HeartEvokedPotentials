@@ -77,9 +77,9 @@ for i in range(len(filelist_med_stage)):
 all_meditators = np.dstack(med_stage)
 
 #%% Gathering ingredients for TFCE analysis
-
-X = [all_controls.transpose(1, 2, 0),
-     all_meditators.transpose(1, 2, 0)]
+% X is of the dimensions epochs * times * channel
+X = [all_controls.transpose(2, 1, 0),
+     all_meditators.transpose(2, 1, 0)]
 
 tfce = dict(start=0, step=.2)  # ideally start and step would be smaller
 
@@ -104,8 +104,8 @@ significant_points = cluster_pv.reshape(t_obs.shape).T < .05
 print(str(significant_points.sum()) + " points selected by TFCE ...")
 
 #%% Convert the arrays to evoked mne objects
-all_controls_flipped = np.average(all_controls.transpose(2,0,1), axis = 0)
-all_meditators_flipped = np.average(all_meditators.transpose(2,0,1), axis = 0)
+all_controls_flipped = mne.EpochsArray(all_controls.transpose(2,0,1), info)
+all_meditators_flipped = mne.EpochsArray(all_meditators.transpose(2,0,1),info)
 
 # average across subjects
 all_controls_mne = mne.io.RawArray(all_controls_flipped, info)
@@ -120,8 +120,7 @@ all_meditators_mne = mne.io.RawArray(all_meditators_flipped, info)
 # effects on the head.
 
 # We need an evoked object to plot the image to be masked
-evoked = mne.combine_evoked([all_controls_mne,
-                             all_meditators_mne],
+evoked = mne.combine_evoked([all_controls_flipped.average(), all_meditators_flipped.average()],
                             weights=[1, -1])  # calculate difference wave
 
 time_unit = dict(time_unit="ms")
@@ -137,7 +136,7 @@ axes = {sel: ax for sel, ax in zip(selections, axes.ravel())}
 evoked.plot_image(axes=axes, group_by=selections, colorbar=False, show=False,
                   mask=significant_points, show_names="all", titles=None,
                   **time_unit)
-plt.colorbar(axes["Left "].images[-1], ax=list(axes.values()), shrink=.3,
-             label="µV")
+% plt.colorbar(axes["Left "].images[-1], ax=list(axes.values()), shrink=.3,
+%             label="µV")
 
 plt.show()
