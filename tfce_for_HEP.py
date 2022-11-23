@@ -12,7 +12,6 @@ Created on Sat Oct 22 10:25:54 2022
 - Transpose the dimensions for TFCE analysis format
 - first dimension is the observations from each group (timepoints)
 - last dimensions should be spatial (channels)
-- 
 
 @author: Rahul venugopal
 """
