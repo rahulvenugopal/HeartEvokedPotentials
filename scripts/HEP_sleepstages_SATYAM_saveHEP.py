@@ -1,21 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun Jun 26 13:49:56 2022
+Created on Mon Aug  4 14:21:26 2025
 
 - Load sleep EDF data
-- Select only one channel for final HEP
+- Pick ECG channel, clean it up, identify R peaks
+- Added detected ECG peaks as STIM channel
+- Added cleaned ECG as a new channels
+
 - Epoching done for all the channels
 - Load scored hypnogram and upsample using YASA
-- Run neurokit2's R peak algorithm
 - Epoch the EEG data based on identified R peak
 - Add sleep stages as metadata to the epochs
-- Added detected ECG peaks as STIM channel
-- There is redundancy for R peaks markers (STIM & annotations)
-- Added cleaned ECG as a new channels
+
+- Getting markers from the STIM channel
+
 - Be mindful about inplace functions
 
+Closed
+- Do epochs rejections (completed on 29.07.2022)
+Based on amplitide thresholds and flat lines for EEG channel
+- Auto save images with filenames
+- Pickling averaged sleep stage epochs with all chans (on 02.09.2022)
+- Not writing .mat files anymore
+
 To DO
-- Do epochs rejections
+- Styling of plots
+- May be a bit more pre-processing and QC
 
 @author: Rahul Venugopal
 """
@@ -26,35 +36,31 @@ import numpy as np
 import yasa
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
+import pickle
 
-#%% Load data and hypnogram files
+#%% Load PSG data and hypnogram files
 
-edfdata = mne.io.read_raw_edf('Anon_PSG.edf',
-                             preload=True)
+filename = 'TYBAUB_PSG.edf'
+saver = os.path.splitext(filename)[0]
 
-# X4 and X5 are ECG channels, picking them and say three EEG channels
-channels_to_pick = ['Fz','Cz','Pz','A1','A2', 'X4','X5']
+edfdata = mne.io.read_raw_edf(filename, preload = True)
+
+# X4 and X5 are ECG channels, picking them and say some EEG channels
+channels_to_pick = ['F3', 'F4', 'C3', 'C4', 'P3', 'P4',
+ 'O1', 'O2', 'Cz', 'Pz','A1','A2', 'X4','X5']
+
 eegrefchans = ['A1','A2']
 
 # select only subset of channels
-edfdata = edfdata.pick_channels(channels_to_pick)
+edfdata = edfdata.pick(channels_to_pick)
 
 # Renaming ECG channels and setting them as ECG channels after filtering
 mne.rename_channels(edfdata.info,
                     {'X4':'ECG1', 'X5':'ECG2'})
-edfdata.set_channel_types({'ECG1':'ecg', 'ECG2':'ecg'})
-
-# Add channel locations from a template
-montage = mne.channels.make_standard_montage('standard_1020')
-edfdata.set_montage(montage)
-
-# Plot the sensors to make sure locations are intact
-mne.viz.plot_sensors(edfdata.info)
-
-# plot and see the data
-edfdata.plot()
 
 # ECG1 can be used for detecting R peaks
+# Use edfdata.plot() to see the data
 
 #%% Identifying R peaks using neurokit2
 
@@ -100,9 +106,16 @@ edfdata.add_channels([stim_raw], force_update_info=True)
 # Then only we can add channels together
 # Hence, filtering and re-referencing are done later
 
-# filter, In ME, filter applies only to EEG channels
+# filter, In MNE, filter applies only to EEG channels
 edfdata.filter(0.1,None,fir_design='firwin').load_data()
 edfdata.filter(None,40,fir_design='firwin').load_data()
+
+# Setting channel type after filtering
+edfdata.set_channel_types({'ECG1':'ecg', 'ECG2':'ecg'})
+
+# Add channel locations from a template
+montage = mne.channels.make_standard_montage('standard_1020')
+edfdata.set_montage(montage)
 
 # Re-referencing the data. The re-referenced info was preventing adding channels
 # So, doing re-referencing at the very end
@@ -112,13 +125,19 @@ edfdata.drop_channels(eegrefchans)
 # Dropping unwanted channels
 edfdata.drop_channels('ECG2')
 
+# Plot the sensors to make sure locations are intact
+mne.viz.plot_sensors(edfdata.info)
+plt.close()
+
 # See the data now before epoching
 edfdata.plot()
+
+plt.close()
 
 #%% Load EDF hypnogram read relevant details
 
 # load scored hypnogram file and read annotations neatly into a dataframe
-sleep_data = mne.read_annotations('Anon_hypnogram.edf')
+sleep_data = mne.read_annotations('data/TYBAUB_HYPNO.edf')
 
 # onset column is start of an epoch and duration tells us how long
 hypnogram_annot = sleep_data.to_data_frame()
@@ -154,57 +173,74 @@ hypno_up_sampled = yasa.hypno_upsample_to_data(hypno = hypno_30s,
 # Print the sleep stages scored
 print(np.unique(hypno_up_sampled))
 
-#%% Creating events out of R peaks samples and setup annotations
-
-locations = info2['ECG_R_Peaks']
-
-# adding two more columns to the events array
-duration = np.squeeze(np.zeros((len(locations),1), dtype = 'int32'))
-marker = np.squeeze(np.ones((len(locations),1), dtype = 'int32'))
-
-# Events array in mne format
-events_array = np.column_stack((locations, duration, marker))
-
-# event dictionary with a label
-event_dict_stim = {1 : 'R_Peaks'}
-
-annot_from_events = mne.annotations_from_events(events = events_array,
-                                                event_desc = event_dict_stim,
-                                                sfreq = edfdata.info['sfreq'])
-edfdata.set_annotations(annot_from_events)
-
 #%% Creating metadata from locations and hypno_up_sampled
 '''
-- Locations has datapoint
+- Locations has datapoints
 - Use this location as index and pick up the key in hypno_up_sampled
 - This can go in loop and keep appending the sleep stage of that R peak
 - This dataframe can go as metadata
 '''
 # initialise a list for R peak's sleep stage
 sleep_stage = []
+locations = info2['ECG_R_Peaks']
 
 for rpeaks in locations:
     sleep_stage.append(hypno_up_sampled[rpeaks])
 
 # Converting list to a dataframe
 sleep_stage_df = pd.DataFrame({'SleepStages':sleep_stage})
+sleep_stage_df["SleepStages"].unique()
+
+# Replacing the numerical code of sleep stages with strings
+replacement_mapping_dict = {
+    0: "W",
+    1: "N1",
+    2: "N2",
+    3: "N3",
+    4: "R"
+}
+
+# rewriting the SleepStages column
+sleep_stage_series = sleep_stage_df["SleepStages"].replace(replacement_mapping_dict)
+
+sleep_stage_df = sleep_stage_series.to_frame()
+sleep_stage_df["SleepStages"].unique()
 
 #%% Read events from annotations and epoch EDF data
 
-events = np.array(mne.events_from_annotations(edfdata))
+events =  mne.find_events(edfdata, stim_channel='STI')
 
 # Epoching parameters
-tmin, tmax = -0.5, 1
-baseline = None
+tmin, tmax = -0.2, 1
+baseline = (-0.2,0)
+
+# rejecting bad epochs based on amplitude trheshold
+reject_criteria = dict(eeg=250e-6) # 100 µV
+
+flat_criteria = dict(eeg=1e-6) # 1 µV
 
 # Epoch the data
 epochs = mne.Epochs(edfdata,
-                    events = events[0],
+                    events = events,
                     tmin = tmin,
                     tmax = tmax,
                     baseline = baseline,
                     detrend=1,
+                    reject=reject_criteria,
+                    flat=flat_criteria,
                     metadata = sleep_stage_df)
+
+# Drop bad epochs
+epochs.drop_bad()
+
+# log count of bad epochs
+print(epochs.drop_log)
+epochs.plot_drop_log()
+
+plt.savefig('data/' + filename + 'Log of bad epochs dropped.png',
+            dpi = 600)
+
+plt.close()
 
 #%% Creating different epochs for each sleep stages
 
@@ -240,7 +276,8 @@ HEP_R = R_epochs.average()
 
 #%% Visualisation of Heart Evoked Potentials
 
-channels_to_plot = ['Fz','Cz','Pz']
+channels_to_plot = ['F3', 'F4', 'C3', 'C4', 'P3', 'P4',
+ 'O1', 'O2', 'Cz']
 
 for channels in channels_to_plot:
 
@@ -264,11 +301,33 @@ for channels in channels_to_plot:
                "R":HEP_R}
 
     # Plotting the HEPs
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(8, 4))
     mne.viz.plot_compare_evokeds(evokeds,
                                  axes=ax,
                                  **style_plot)
 
-    plt.title("HEP in various stages of sleep")
-    plt.tight_layout()
+    plt.title("HEP in various stages of sleep from" + channels + ' sensor')
     plt.show()
+    plt.tight_layout()
+
+    # save the figure
+    plt.savefig(saver +"_HEP_" + channels + '.png',
+                dpi = 600)
+    plt.close()
+
+#%% Saving the epoched averaged files
+
+with open(saver +'_W.pkl','wb') as f:
+    pickle.dump(HEP_W,f)
+
+with open(saver +'_N1.pkl','wb') as f:
+    pickle.dump(HEP_N1,f)
+
+with open(saver +'_N2.pkl','wb') as f:
+    pickle.dump(HEP_N2,f)
+
+with open(saver +'_N3.pkl','wb') as f:
+    pickle.dump(HEP_N3,f)
+
+with open(saver +'_REM.pkl','wb') as f:
+    pickle.dump(HEP_R,f)
