@@ -1,5 +1,28 @@
 # HeartEvokedPotentials
-![](https://github.com/rahulvenugopal/HeartEvokedPotentials/blob/main/HEP_Sleep.png)
+![](https://github.com/rahulvenugopal/HeartEvokedPotentials/blob/main/images/HEP_Sleep.png)
+
+PSG EDF  ──►  Pick channels  ──►  Detect R peaks (NeuroKit2)
+                                        │
+                                        ▼
+                               Add cleaned ECG + STIM channel
+                                        │
+                                        ▼
+                               Filter · Montage · Re-reference
+                                        │
+          Hypnogram EDF  ──►  Upsample hypnogram (YASA)
+                                        │
+                                        ▼
+                               Tag each R peak with sleep stage
+                                        │
+                                        ▼
+                               Epoch EEG around R peaks
+                               Reject artefactual epochs
+                                        │
+                                        ▼
+                          Average per stage  →  HEP Evoked objects
+                                        │
+                                        ▼
+                             Save figures (.png) + objects (.pkl)
 
 # Sleep HEP pipeline
 - Dataset: Overnight polysomnography data in .edf format and the same data scored using Polyman, available as a .edf file

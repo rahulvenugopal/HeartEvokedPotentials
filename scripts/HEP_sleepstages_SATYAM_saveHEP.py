@@ -2,30 +2,21 @@
 """
 Created on Mon Aug  4 14:21:26 2025
 
-- Load sleep EDF data
-- Pick ECG channel, clean it up, identify R peaks
-- Added detected ECG peaks as STIM channel
-- Added cleaned ECG as a new channels
+Heartbeat Evoked Potentials (HEP) are EEG deflections time-locked to the
+R-peak of the cardiac cycle.  They reflect the cortical processing of
+interoceptive (heartbeat) signals and are modulated by arousal and sleep stage.
 
-- Epoching done for all the channels
-- Load scored hypnogram and upsample using YASA
-- Epoch the EEG data based on identified R peak
-- Add sleep stages as metadata to the epochs
-
-- Getting markers from the STIM channel
-
-- Be mindful about inplace functions
-
-Closed
-- Do epochs rejections (completed on 29.07.2022)
-Based on amplitide thresholds and flat lines for EEG channel
-- Auto save images with filenames
-- Pickling averaged sleep stage epochs with all chans (on 02.09.2022)
-- Not writing .mat files anymore
-
-To DO
-- Styling of plots
-- May be a bit more pre-processing and QC
+Pipeline overview
+-----------------
+1.  Load raw PSG (.edf) and pick EEG + ECG channels
+2.  Detect R peaks from the ECG using NeuroKit2
+3.  Embed the cleaned ECG and R-peak markers back into the MNE Raw object
+4.  Filter, re-reference, and set electrode montage
+5.  Load and upsample the scored hypnogram (YASA)
+6.  Assign each R-peak to its sleep stage → metadata DataFrame
+7.  Epoch the EEG around every R-peak; reject artefactual epochs
+8.  Average epochs separately per sleep stage → HEP Evoked objects
+9.  Plot and save figures + pickled Evokeds
 
 @author: Rahul Venugopal
 """
@@ -38,15 +29,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import pickle
+import seaborn as sns
 
-#%% Load PSG data and hypnogram files
+#%% Load PSG data
 
-filename = 'TYBAUB_PSG.edf'
+filename = 'data/TYBAUB_PSG.edf'
 saver = os.path.splitext(filename)[0]
 
+# preload=True loads all signal data into RAM immediately.
 edfdata = mne.io.read_raw_edf(filename, preload = True)
+srate = edfdata.info['sfreq']
 
-# X4 and X5 are ECG channels, picking them and say some EEG channels
+# X4 and X5 are ECG channels, picking them and some EEG channels
+# A1/A2 — mastoid reference electrodes (kept for re-referencing)
 channels_to_pick = ['F3', 'F4', 'C3', 'C4', 'P3', 'P4',
  'O1', 'O2', 'Cz', 'Pz','A1','A2', 'X4','X5']
 
@@ -75,7 +70,22 @@ signals, info1 = nk.ecg_process(ecg_data,
 peaks, info2 = nk.ecg_peaks(signals["ECG_Clean"],
                            sampling_rate = edfdata.info['sfreq'])
 
-# info2['ECG_R_Peaks'] contains the samplepoints of detected R peaks
+# Pick R peak samples
+locations = info2['ECG_R_Peaks']
+
+# Get RR intervals
+rr_intervals = np.diff(locations)
+rr_seconds = rr_intervals / srate
+rr_ms = rr_seconds * 1000
+
+# Plot style
+sns.set_style("whitegrid")
+sns.set_context("talk")   # larger fonts
+
+plt.figure(figsize=(6,1.5))
+plt.boxplot(rr_ms, vert=False)
+plt.axis("off")
+plt.show()
 
 #%% Adding cleaned ECG trace and identified ECG peak as a STIM
 
@@ -107,8 +117,7 @@ edfdata.add_channels([stim_raw], force_update_info=True)
 # Hence, filtering and re-referencing are done later
 
 # filter, In MNE, filter applies only to EEG channels
-edfdata.filter(0.1,None,fir_design='firwin').load_data()
-edfdata.filter(None,40,fir_design='firwin').load_data()
+edfdata.filter(l_freq=0.1, h_freq=40, fir_design='firwin')
 
 # Setting channel type after filtering
 edfdata.set_channel_types({'ECG1':'ecg', 'ECG2':'ecg'})
@@ -136,16 +145,20 @@ plt.close()
 
 #%% Load EDF hypnogram read relevant details
 
-# load scored hypnogram file and read annotations neatly into a dataframe
+# The hypnogram was scored by a sleep technologist and saved as an EDF
+# annotations file.  Each annotation marks the start and duration of one
+# 30-second sleep stage epoch.
 sleep_data = mne.read_annotations('data/TYBAUB_HYPNO.edf')
 
 # onset column is start of an epoch and duration tells us how long
 hypnogram_annot = sleep_data.to_data_frame()
 
-# change the duration column into epochs count
+# Convert the 'duration' column from seconds → number of 30-second epochs.
+# e.g. a 300-second block of N2 → duration = 300/30 = 10 epochs.
 hypnogram_annot.duration = hypnogram_annot.duration/30
 
-# keep the description column neat
+# Each description string looks like "Sleep Stage N2".
+# We only need the last word (the stage code: W, N1, N2, N3, R).
 just_labels = []
 for entries in hypnogram_annot.description:
     just_labels.append(entries.split()[2])
@@ -153,19 +166,25 @@ for entries in hypnogram_annot.description:
 # replacing the description column with just_labels
 hypnogram_annot['description'] = just_labels
 
-# we need only the duration column and description column to recreate hypnogram
-# just reapeat duration times the label in description column
+# Reconstruct a sample-by-sample hypnogram at 1 label per 30-second epoch.
+# For each row in hypnogram_annot, repeat the stage label `duration` times.
+# e.g. 10 epochs of N2  →  ['N2', 'N2', 'N2', 'N2', 'N2', 'N2', 'N2', 'N2', 'N2', 'N2']
 hypno_30s = []
 for stages in range(len(hypnogram_annot)):
     for repetitions in range(int(hypnogram_annot.duration[stages])):
         hypno_30s.append(hypnogram_annot.description[stages])
 
-# converting list to numpy array
+# convert list to NumPy array for YASA
 hypno_30s = np.asarray(hypno_30s)
 
-# converting string array into int array using yasa
+# YASA requires integer stage codes, not strings.
+# hypno_str_to_int maps: 'W'→0, 'N1'→1, 'N2'→2, 'N3'→3, 'R'→4
 hypno_30s = yasa.hypno_str_to_int(hypno_30s)
 
+# Upsample from 1 label per 30 seconds to 1 label per sample.
+# YASA tiles each 30-second epoch across (srate × 30) consecutive samples,
+# giving an array of length == edfdata.n_times.
+# sf_hypno = 1/30 means the hypnogram has one value every 30 seconds.
 hypno_up_sampled = yasa.hypno_upsample_to_data(hypno = hypno_30s,
                             sf_hypno = 1/30,
                             data = edfdata)
@@ -174,15 +193,24 @@ hypno_up_sampled = yasa.hypno_upsample_to_data(hypno = hypno_30s,
 print(np.unique(hypno_up_sampled))
 
 #%% Creating metadata from locations and hypno_up_sampled
+
+# MNE Epochs support a `metadata` argument — a DataFrame with one row per
+# epoch.  We use it to tag each R-peak epoch with its sleep stage
+
 '''
-- Locations has datapoints
+- Locations has datapoints where R peak happened
 - Use this location as index and pick up the key in hypno_up_sampled
 - This can go in loop and keep appending the sleep stage of that R peak
 - This dataframe can go as metadata
 '''
+
+# For each detected R-peak, look up the sleep stage at that sample.
+# hypno_up_sampled has one integer per sample of the recording.
+# Indexing it with `locations` (array of R-peak sample positions) returns
+# one stage integer per R-peak
+
 # initialise a list for R peak's sleep stage
 sleep_stage = []
-locations = info2['ECG_R_Peaks']
 
 for rpeaks in locations:
     sleep_stage.append(hypno_up_sampled[rpeaks])
@@ -208,6 +236,11 @@ sleep_stage_df["SleepStages"].unique()
 
 #%% Read events from annotations and epoch EDF data
 
+# find_events() scans the STI channel for transitions from 0 to a non-zero value.
+# Returns an array of shape (n_events, 3):
+#   column 0: sample index of the event
+#   column 1: previous channel value (usually 0)
+#   column 2: event id (the non-zero value, here = 1)
 events =  mne.find_events(edfdata, stim_channel='STI')
 
 # Epoching parameters
@@ -215,7 +248,7 @@ tmin, tmax = -0.2, 1
 baseline = (-0.2,0)
 
 # rejecting bad epochs based on amplitude trheshold
-reject_criteria = dict(eeg=250e-6) # 100 µV
+reject_criteria = dict(eeg=250e-6) # 250 µV
 
 flat_criteria = dict(eeg=1e-6) # 1 µV
 
@@ -237,7 +270,7 @@ epochs.drop_bad()
 print(epochs.drop_log)
 epochs.plot_drop_log()
 
-plt.savefig('data/' + filename + 'Log of bad epochs dropped.png',
+plt.savefig(filename + 'Log of bad epochs dropped.png',
             dpi = 600)
 
 plt.close()
